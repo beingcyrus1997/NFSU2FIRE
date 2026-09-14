@@ -1,0 +1,26 @@
+name: Compile ASI Plugin
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup MSBuild (Visual Studio Compiler)
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Compile 32-bit DLL
+      run: |
+        cl.exe /O2 /LD /Fe:my_script.asi dllmain.cpp user32.lib
+
+    - name: Upload Finished ASI Mod
+      uses: actions/upload-artifact@v4
+      with:
+        name: nfsu2-asi-plugin
+        path: my_script.asi
