@@ -2,8 +2,8 @@
 
 bool bExhaustFlameToggle = false;
 
-// Function to safely inject assembly overrides into the game executable engine
-void PatchGameByte(DWORD address, unsigned char value) {
+// Function to safely inject overrides into game code memory pages
+void WriteMemoryByte(DWORD address, unsigned char value) {
     DWORD oldProtect;
     VirtualProtect((LPVOID)address, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
     *(unsigned char*)address = value;
@@ -11,40 +11,38 @@ void PatchGameByte(DWORD address, unsigned char value) {
 }
 
 DWORD WINAPI MainThread(LPVOID lpParam) {
-    // Confirm speed2.exe engine modules are ready
+    // Wait until the speed2.exe engine modules are fully running
     while (GetModuleHandleA("speed2.exe") == NULL) {
         Sleep(100);
     }
 
-    // Engine Routine Addresses managing exhaust heat and overrun flame injection thresholds
-    // Overwriting these ensures calculations always evaluate to "spawn flame particles"
-    DWORD engineOverrunAddress = 0x0059C6D5; 
-    DWORD menuShowcaseFlameAddress = 0x004B2A1E;
+    // --- Hardcoded Memory Offset for NFSU2 v1.2 ---
+    // This address targets the engine overrun flame logic check inside the v1.2 executable
+    DWORD v12ExhaustFlamesAddress = 0x0059C3B2; 
 
     while (true) {
-        // Listening for 'K' button input to cycle states
+        // Intercept inputs safely anywhere in menus or gameplay loops
         if (GetAsyncKeyState('K') & 1) {
             bExhaustFlameToggle = !bExhaustFlameToggle;
             
             if (bExhaustFlameToggle) {
-                Beep(1000, 120); // High beep = ON
+                Beep(1200, 80); // High short pitch = Activated
             } else {
-                Beep(500, 120);  // Low beep = OFF
+                Beep(600, 80);  // Low short pitch = Deactivated
             }
         }
 
         if (bExhaustFlameToggle) {
-            // Force code comparison flags to pass verification loops
-            // 0xEB represents an unconditional assembly JMP (Jump) instruction
-            PatchGameByte(engineOverrunAddress, 0xEB);
-            PatchGameByte(menuShowcaseFlameAddress, 0x01);
+            // Overwrite the conditional jump instruction
+            // 0xEB = Assembly JMP (unconditional), forcing the particle manager to draw flames nonstop
+            WriteMemoryByte(v12ExhaustFlamesAddress, 0xEB);
         } else {
-            // Revert back to original game engine logic bytes (conditional jumps/checks)
-            PatchGameByte(engineOverrunAddress, 0x74); 
-            PatchGameByte(menuShowcaseFlameAddress, 0x00);
+            // Restore native game physics handling
+            // 0x74 = Assembly JE (jump if equal) calculation check flag
+            WriteMemoryByte(v12ExhaustFlamesAddress, 0x74);
         }
 
-        Sleep(10); 
+        Sleep(10); // Maintain low overhead footprint
     }
     return 0;
 }
