@@ -2,47 +2,55 @@
 
 bool bExhaustFlameToggle = false;
 
-// Function to safely inject overrides into game code memory pages
-void WriteMemoryByte(DWORD address, unsigned char value) {
-    DWORD oldProtect;
-    VirtualProtect((LPVOID)address, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
-    *(unsigned char*)address = value;
-    VirtualProtect((LPVOID)address, 1, oldProtect, &oldProtect);
+// Safe pointer verification helper
+bool IsAddressValid(DWORD address) {
+    return (address >= 0x00400000 && address <= 0x00A00000);
 }
 
 DWORD WINAPI MainThread(LPVOID lpParam) {
-    // Wait until the speed2.exe engine modules are fully running
     while (GetModuleHandleA("speed2.exe") == NULL) {
         Sleep(100);
     }
 
-    // --- Hardcoded Memory Offset for NFSU2 v1.2 ---
-    // This address targets the engine overrun flame logic check inside the v1.2 executable
-    DWORD v12ExhaustFlamesAddress = 0x0059C3B2; 
+    // This points directly to the core Engine Manager structure in v1.2
+    // It is highly stable because it's tied to engine variables, not rendering loops
+    DWORD engineBasePointer = 0x008A11B4; 
 
     while (true) {
-        // Intercept inputs safely anywhere in menus or gameplay loops
         if (GetAsyncKeyState('K') & 1) {
             bExhaustFlameToggle = !bExhaustFlameToggle;
             
             if (bExhaustFlameToggle) {
-                Beep(1200, 80); // High short pitch = Activated
+                Beep(1300, 70); // High beep
             } else {
-                Beep(600, 80);  // Low short pitch = Deactivated
+                Beep(650, 70);  // Low beep
             }
         }
 
         if (bExhaustFlameToggle) {
-            // Overwrite the conditional jump instruction
-            // 0xEB = Assembly JMP (unconditional), forcing the particle manager to draw flames nonstop
-            WriteMemoryByte(v12ExhaustFlamesAddress, 0xEB);
-        } else {
-            // Restore native game physics handling
-            // 0x74 = Assembly JE (jump if equal) calculation check flag
-            WriteMemoryByte(v12ExhaustFlamesAddress, 0x74);
+            DWORD* pEngineBase = (DWORD*)engineBasePointer;
+            if (pEngineBase && IsAddressValid(*pEngineBase)) {
+                
+                // Offset to active vehicle drivetrain structure
+                DWORD* pDrivetrain = (DWORD*)(*pEngineBase + 0x24); 
+                if (pDrivetrain && IsAddressValid(*pDrivetrain)) {
+                    
+                    // 0x150 is the raw fuel-rich multiplier offset inside the combustion simulation loop
+                    float* pFuelMixture = (float*)(*pDrivetrain + 0x150);
+                    
+                    if (pFuelMixture) {
+                        DWORD oldProtect;
+                        VirtualProtect((LPVOID)pFuelMixture, sizeof(float), PAGE_EXECUTE_READWRITE, &oldProtect);
+                        
+                        // Force a massive unburnt fuel ratio to trigger native exhaust flame loops
+                        *pFuelMixture = 5.0f; 
+                        
+                        VirtualProtect((LPVOID)pFuelMixture, sizeof(float), oldProtect, &oldProtect);
+                    }
+                }
+            }
         }
-
-        Sleep(10); // Maintain low overhead footprint
+        Sleep(10);
     }
     return 0;
 }
