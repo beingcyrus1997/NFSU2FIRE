@@ -2,61 +2,49 @@
 
 bool bExhaustFlameToggle = false;
 
-// Universal runtime structure search layout for NFSU2
-struct VehicleRenderState {
-    char pad[0x2C];        // Skip basic geometry headers
-    DWORD flameTrigger;    // Runtime offset managing active exhaustion particle injection
-};
-
-// Safe verification helper to ensure memory addresses exist before writing to them
-bool IsValidPointer(DWORD ptr) {
-    return (ptr >= 0x00400000 && ptr <= 0x00A00000);
+// Function to safely inject assembly overrides into the game executable engine
+void PatchGameByte(DWORD address, unsigned char value) {
+    DWORD oldProtect;
+    VirtualProtect((LPVOID)address, 1, PAGE_EXECUTE_READWRITE, &oldProtect);
+    *(unsigned char*)address = value;
+    VirtualProtect((LPVOID)address, 1, oldProtect, &oldProtect);
 }
 
 DWORD WINAPI MainThread(LPVOID lpParam) {
+    // Confirm speed2.exe engine modules are ready
     while (GetModuleHandleA("speed2.exe") == NULL) {
         Sleep(100);
     }
 
-    // Dynamic pointers pointing to the player's active world space structures
-    // These paths work uniformly across 1.2 US / EU Executables 
-    DWORD baseVehiclePointerArray = 0x008A1230; 
+    // Engine Routine Addresses managing exhaust heat and overrun flame injection thresholds
+    // Overwriting these ensures calculations always evaluate to "spawn flame particles"
+    DWORD engineOverrunAddress = 0x0059C6D5; 
+    DWORD menuShowcaseFlameAddress = 0x004B2A1E;
 
     while (true) {
-        // Toggle engine backfire override status with key 'K'
+        // Listening for 'K' button input to cycle states
         if (GetAsyncKeyState('K') & 1) {
             bExhaustFlameToggle = !bExhaustFlameToggle;
             
             if (bExhaustFlameToggle) {
-                Beep(900, 100); // Higher confirmation tone
+                Beep(1000, 120); // High beep = ON
             } else {
-                Beep(450, 100); // Lower closure tone
+                Beep(500, 120);  // Low beep = OFF
             }
         }
 
         if (bExhaustFlameToggle) {
-            // Read active target car profile safely
-            DWORD* pVehicleMgr = (DWORD*)baseVehiclePointerArray;
-            if (pVehicleMgr && IsValidPointer((DWORD)*pVehicleMgr)) {
-                DWORD* pActiveCar = (DWORD*)(*pVehicleMgr + 0x10); // Offset to current driven simulation object
-                
-                if (pActiveCar && IsValidPointer((DWORD)*pActiveCar)) {
-                    // Access the rendering flag container directly inside the loaded car object
-                    DWORD* pRenderState = (DWORD*)(*pActiveCar + 0x3D4); 
-                    
-                    if (pRenderState && IsValidPointer((DWORD)*pRenderState)) {
-                        DWORD oldProtect;
-                        // Inject 0x02 to force constant ignition overrun / exhaust popping animations
-                        DWORD forceFlameValue = 0x02; 
-                        
-                        VirtualProtect((LPVOID)pRenderState, sizeof(DWORD), PAGE_EXECUTE_READWRITE, &oldProtect);
-                        *pRenderState = forceFlameValue; 
-                        VirtualProtect((LPVOID)pRenderState, sizeof(DWORD), oldProtect, &oldProtect);
-                    }
-                }
-            }
+            // Force code comparison flags to pass verification loops
+            // 0xEB represents an unconditional assembly JMP (Jump) instruction
+            PatchGameByte(engineOverrunAddress, 0xEB);
+            PatchGameByte(menuShowcaseFlameAddress, 0x01);
+        } else {
+            // Revert back to original game engine logic bytes (conditional jumps/checks)
+            PatchGameByte(engineOverrunAddress, 0x74); 
+            PatchGameByte(menuShowcaseFlameAddress, 0x00);
         }
-        Sleep(8); // Matches game's internal script update frequency (~120hz)
+
+        Sleep(10); 
     }
     return 0;
 }
